@@ -194,22 +194,7 @@ typedef void (^RMStoreSuccessBlock)();
     [self addPayment:productIdentifier user:nil success:successBlock failure:failureBlock];
 }
 
-- (void)addPayment:(NSString*)productIdentifier
-              user:(NSString*)userIdentifier
-           success:(void (^)(SKPaymentTransaction *transaction))successBlock
-           failure:(void (^)(SKPaymentTransaction *transaction, NSError *error))failureBlock
-{
-    SKProduct *product = [self productForIdentifier:productIdentifier];
-    if (product == nil)
-    {
-        RMStoreLog(@"unknown product id %@", productIdentifier)
-        if (failureBlock != nil)
-        {
-            NSError *error = [NSError errorWithDomain:RMStoreErrorDomain code:RMStoreErrorCodeUnknownProductIdentifier userInfo:@{NSLocalizedDescriptionKey: NSLocalizedStringFromTable(@"Unknown product identifier", @"RMStore", @"Error description")}];
-            failureBlock(nil, error);
-        }
-        return;
-    }
+- (void)addPayment:(void (^)(SKPaymentTransaction *, NSError *))failureBlock product:(SKProduct *)product productIdentifier:(NSString *)productIdentifier successBlock:(void (^)(SKPaymentTransaction *))successBlock userIdentifier:(NSString *)userIdentifier {
     SKMutablePayment *payment = [SKMutablePayment paymentWithProduct:product];
     if ([payment respondsToSelector:@selector(setApplicationUsername:)])
     {
@@ -223,6 +208,50 @@ typedef void (^RMStoreSuccessBlock)();
     
     [[SKPaymentQueue defaultQueue] addPayment:payment];
 }
+
+- (void)addPayment:(NSString*)productIdentifier
+              user:(NSString*)userIdentifier
+           success:(void (^)(SKPaymentTransaction *transaction))successBlock
+           failure:(void (^)(SKPaymentTransaction *transaction, NSError *error))failureBlock
+{
+    SKProduct *product = [self productForIdentifier:productIdentifier];
+    if (product == nil)
+    {
+        RMStoreLog(@"unknown product id %@ going to recheck", productIdentifier)
+        
+        //going to wait a little, because request of products might be late
+        double delayInSeconds = 3.0;
+        dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delayInSeconds * NSEC_PER_SEC));
+        dispatch_after(popTime, dispatch_get_main_queue(), ^(void){
+            [self addPaymentWithoutWaiting:productIdentifier user:userIdentifier success:successBlock failure:failureBlock];
+        });
+        
+        return;
+    }
+    
+    [self addPayment:failureBlock product:product productIdentifier:productIdentifier successBlock:successBlock userIdentifier:userIdentifier];
+}
+
+- (void)addPaymentWithoutWaiting:(NSString*)productIdentifier
+                            user:(NSString*)userIdentifier
+                         success:(void (^)(SKPaymentTransaction *transaction))successBlock
+                         failure:(void (^)(SKPaymentTransaction *transaction, NSError *error))failureBlock
+{
+    SKProduct *product = [self productForIdentifier:productIdentifier];
+    if (product == nil)
+    {
+        RMStoreLog(@"unknown product id %@", productIdentifier)
+        if (failureBlock != nil)
+        {
+            NSError *error = [NSError errorWithDomain:RMStoreErrorDomain code:RMStoreErrorCodeUnknownProductIdentifier userInfo:@{NSLocalizedDescriptionKey: NSLocalizedStringFromTable(@"Unknown product identifier", @"RMStore", @"Error description")}];
+            failureBlock(nil, error);
+        }
+        return;
+    }
+    
+    [self addPayment:failureBlock product:product productIdentifier:productIdentifier successBlock:successBlock userIdentifier:userIdentifier];
+}
+
 
 - (void)requestProducts:(NSSet*)identifiers
 {
